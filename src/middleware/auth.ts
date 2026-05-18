@@ -2,7 +2,7 @@ import { verifyToken } from '@clerk/backend'
 import type { Context, Next } from 'hono'
 import { db, users } from '../../db/src'
 import { eq } from 'drizzle-orm'
-import type { AppVariables } from '../types'
+import type { AppVariables } from '../types/index.js'
 
 export async function requireAuth(
   c: Context<{ Variables: AppVariables }>,

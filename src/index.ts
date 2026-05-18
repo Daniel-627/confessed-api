@@ -1,10 +1,10 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
-import { handleClerkWebhook } from './routes/webhooks/clerk'
-import me from './routes/me'
-import contributors from './routes/contributors'
-import admin from './routes/admin'
-import type { AppVariables } from './types'
+import { handleClerkWebhook } from './routes/webhooks/clerk.js'
+import me from './routes/me.js'
+import contributors from './routes/contributors.js'
+import admin from './routes/admin.js'
+import type { AppVariables } from './types/index.js'
 
 const app = new Hono<{ Variables: AppVariables }>()
 

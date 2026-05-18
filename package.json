@@ -1,6 +1,7 @@
 {
   "name": "confessed-api",
   "version": "1.0.0",
+  "type": "module",
   "description": "",
   "main": "src/index.ts",
   "scripts": {

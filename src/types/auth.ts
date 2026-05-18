@@ -1,4 +1,4 @@
-import type { users } from '../../db/src'
+import type { users } from '../../db/src/index.js'
 
 export type User = typeof users.$inferSelect
 

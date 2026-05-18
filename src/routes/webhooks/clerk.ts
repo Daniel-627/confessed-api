@@ -1,6 +1,6 @@
 import { Webhook } from 'svix'
 import type { Context } from 'hono'
-import { db, users, userPreferences } from '../../../db/src'
+import { db, users, userPreferences } from '../../../db/src/index.js'
 import { eq } from 'drizzle-orm'
 
 export async function handleClerkWebhook(c: Context) {

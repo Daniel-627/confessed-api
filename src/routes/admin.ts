@@ -1,15 +1,15 @@
 import { Hono } from 'hono'
-import { requireAuth, requireRole } from '../middleware/auth'
+import { requireAuth, requireRole } from '../middleware/auth.js'
 import {
   db,
   users,
   contributorApplications,
   contributorProfiles,
   auditLog,
-} from '../../db/src'
+} from '../../db/src/index.js'
 import { eq } from 'drizzle-orm'
-import type { AppVariables } from '../types'
-import { sendEmail } from '../lib/email'
+import type { AppVariables } from '../types/index.js'
+import { sendEmail } from '../lib/email.js'
 
 const admin = new Hono<{ Variables: AppVariables }>()
 

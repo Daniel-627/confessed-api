@@ -1,13 +1,13 @@
 import { Hono } from 'hono'
-import { requireAuth, requireRole } from '../middleware/auth'
+import { requireAuth, requireRole } from '../middleware/auth.js'
 import {
   db,
   users,
   contributorProfiles,
   contributorApplications,
-} from '../../db/src'
+} from '../../db/src/index.js'
 import { eq, and } from 'drizzle-orm'
-import type { AppVariables } from '../types'
+import type { AppVariables } from '../types/index.js'
 
 const contributors = new Hono<{ Variables: AppVariables }>()
 
