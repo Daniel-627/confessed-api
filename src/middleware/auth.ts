@@ -1,6 +1,6 @@
 import { verifyToken } from '@clerk/backend'
 import type { Context, Next } from 'hono'
-import { db, users } from '../../db/src'
+import { db, users } from '../../db/src/index.js'
 import { eq } from 'drizzle-orm'
 import type { AppVariables } from '../types/index.js'
 
