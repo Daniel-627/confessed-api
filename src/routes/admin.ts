@@ -200,4 +200,111 @@ admin.put('/users/:id/suspend', async (c) => {
   return c.json({ success: true })
 })
 
+// PUT /admin/users/:id/reactivate
+admin.put('/users/:id/reactivate', async (c) => {
+  const id = c.req.param('id')
+  const actor = c.get('user')
+
+  const [updated] = await db
+    .update(users)
+    .set({ isActive: true, updatedAt: new Date() })
+    .where(eq(users.id, id))
+    .returning()
+
+  if (!updated) return c.json({ error: 'User not found' }, 404)
+
+  await db.insert(auditLog).values({
+    userId: id,
+    actorId: actor.id,
+    eventType: 'user_reactivated',
+    metadata: {},
+  })
+
+  return c.json({ success: true })
+})
+
+// PUT /admin/users/:id/role
+admin.put('/users/:id/role', async (c) => {
+  const id = c.req.param('id')
+  const actor = c.get('user')
+  const body = await c.req.json().catch(() => ({}))
+
+  const newRole = body.role as 'regular' | 'contributor' | 'admin' | undefined
+
+  if (!newRole || !['regular', 'contributor', 'admin'].includes(newRole)) {
+    return c.json({ error: 'Invalid role. Must be regular, contributor, or admin.' }, 400)
+  }
+
+  // Prevent admin from demoting themselves — avoids accidental lockout
+  if (id === actor.id && newRole !== 'admin') {
+    return c.json({ error: 'You cannot change your own role.' }, 400)
+  }
+
+  const targetUser = await db.query.users.findFirst({
+    where: eq(users.id, id),
+  })
+
+  if (!targetUser) return c.json({ error: 'User not found' }, 404)
+
+  const oldRole = targetUser.role
+
+  if (oldRole === newRole) {
+    return c.json({ error: `User already has role: ${newRole}` }, 400)
+  }
+
+  // Update the role
+  await db
+    .update(users)
+    .set({ role: newRole, updatedAt: new Date() })
+    .where(eq(users.id, id))
+
+  // If promoting to contributor and no profile exists yet, create one
+  if (newRole === 'contributor') {
+    const existingProfile = await db.query.contributorProfiles.findFirst({
+      where: eq(contributorProfiles.userId, id),
+    })
+
+    if (!existingProfile) {
+      const slug = (targetUser.displayName ?? targetUser.email.split('@')[0])
+        .toLowerCase()
+        .replace(/\s+/g, '-')
+        .replace(/[^a-z0-9-]/g, '')
+
+      await db.insert(contributorProfiles).values({
+        userId: id,
+        fullName: targetUser.displayName ?? targetUser.email,
+        title: 'other',
+        bio: '',
+        isPublic: false, // admin-promoted profiles start private until filled in
+        slug,
+      })
+    }
+  }
+
+  // Write audit log — role_changed event from your schema
+  await db.insert(auditLog).values({
+    userId: id,
+    actorId: actor.id,
+    eventType: 'role_changed',
+    metadata: { from: oldRole, to: newRole, method: 'admin_direct' },
+  })
+
+  // Notify the user via email on promotion to contributor
+  if (newRole === 'contributor' && oldRole !== 'contributor') {
+    await sendEmail({
+      to: targetUser.email,
+      type: 'contributor_approved',
+      data: {
+        fullName: targetUser.displayName ?? targetUser.email,
+        reason: 'An administrator has granted you contributor access.',
+      },
+    })
+  }
+
+  return c.json({
+    success: true,
+    user: { id, oldRole, newRole },
+  })
+})
+
 export default admin
