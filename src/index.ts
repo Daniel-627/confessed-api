@@ -9,7 +9,12 @@ import type { AppVariables } from './types/index.js'
 const app = new Hono<{ Variables: AppVariables }>()
 
 app.use('*', cors({
-  origin: ['http://localhost:3000', 'http://localhost:5173'],
+  origin: [
+    'http://localhost:3000',
+    'http://localhost:5173',
+    'https://confessed.faith',
+    'https://contribute.confessed.faith',
+  ],
   allowHeaders: ['Authorization', 'Content-Type'],
   allowMethods: ['GET', 'POST', 'PUT', 'DELETE'],
 }))
