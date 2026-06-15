@@ -13,6 +13,7 @@ app.use('*', cors({
     'http://localhost:3000',
     'http://localhost:5173',
     'https://confessed.faith',
+    'https://www.confessed.faith',
     'https://contribute.confessed.faith',
   ],
   allowHeaders: ['Authorization', 'Content-Type'],
