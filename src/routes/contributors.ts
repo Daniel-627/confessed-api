@@ -6,7 +6,7 @@ import {
   contributorProfiles,
   contributorApplications,
 } from '../../db/src/index.js'
-import { eq, and } from 'drizzle-orm'
+import { eq, and, desc } from 'drizzle-orm'
 import type { AppVariables } from '../types/index.js'
 
 const contributors = new Hono<{ Variables: AppVariables }>()
@@ -48,6 +48,34 @@ contributors.post('/apply', requireAuth, async (c) => {
     .returning()
 
   return c.json({ application }, 201)
+})
+
+// GET /contributors/apply/status — check current user's application status
+// IMPORTANT: must be defined BEFORE GET /:slug, otherwise "apply" gets
+// captured as a slug parameter.
+contributors.get('/apply/status', requireAuth, async (c) => {
+  const user = c.get('user')
+
+  // If already a contributor or admin, no need to apply
+  if (user.role === 'contributor' || user.role === 'admin') {
+    return c.json({ status: 'not_applicable', role: user.role })
+  }
+
+  const latest = await db.query.contributorApplications.findFirst({
+    where: eq(contributorApplications.userId, user.id),
+    orderBy: [desc(contributorApplications.submittedAt)],
+  })
+
+  if (!latest) {
+    return c.json({ status: 'none' })
+  }
+
+  return c.json({
+    status: latest.status, // 'pending' | 'approved' | 'rejected'
+    submittedAt: latest.submittedAt,
+    reviewedAt: latest.reviewedAt,
+    decisionReason: latest.decisionReason,
+  })
 })
 
 // GET /contributors/:slug — public
