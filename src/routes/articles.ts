@@ -1,263 +1,261 @@
+// confessed-api/src/routes/articles.ts
 import { Hono } from 'hono'
-import { requireAuth, requireRole } from '../middleware/auth.js'
-import {
-  db,
-  articles,
-  series,
-  users,
-  auditLog,
-} from '../../db/src/index.js'
 import { eq, and, desc, sql } from 'drizzle-orm'
+import { db, articles, series } from '../../db/src/index.js'
+import { requireAuth } from '../middleware/auth.js'
 import type { AppVariables } from '../types/index.js'
 
-const articlesRouter = new Hono<{ Variables: AppVariables }>()
+export const articlesRoute = new Hono<{ Variables: AppVariables }>()
 
-// ──────────────────────────────────────────────────────────
-// Helpers
-// ──────────────────────────────────────────────────────────
+// ── helpers ────────────────────────────────────────────────────────────────
 
-function slugify(title: string) {
-  return title
+function slugify(input: string): string {
+  return input
     .toLowerCase()
     .trim()
     .replace(/[^a-z0-9\s-]/g, '')
     .replace(/\s+/g, '-')
     .replace(/-+/g, '-')
+    .slice(0, 80)
 }
 
-function estimateReadingTime(content: string) {
-  const words = content.trim().split(/\s+/).length
-  return Math.max(1, Math.round(words / 200)) // ~200 wpm
+async function uniqueSlug(base: string): Promise<string> {
+  let slug = base || 'article'
+  let attempt = 1
+  while (true) {
+    const [existing] = await db
+      .select({ id: articles.id })
+      .from(articles)
+      .where(eq(articles.slug, slug))
+      .limit(1)
+    if (!existing) return slug
+    attempt += 1
+    slug = `${base}-${attempt}`
+  }
 }
 
-// ──────────────────────────────────────────────────────────
-// GET /articles — public, published only
-// Query params: ?series=slug  ?tag=word  ?limit=20  ?offset=0
-// ──────────────────────────────────────────────────────────
-articlesRouter.get('/', async (c) => {
+function estimateReadingTime(markdown: string): number {
+  const words = markdown.trim().split(/\s+/).filter(Boolean).length
+  return Math.max(1, Math.round(words / 200))
+}
+
+// ── GET /articles — public, published only ────────────────────────────────
+
+articlesRoute.get('/', async (c) => {
   const seriesSlug = c.req.query('series')
-  const limit = Math.min(Number(c.req.query('limit')) || 20, 50)
-  const offset = Number(c.req.query('offset')) || 0
+  const tag        = c.req.query('tag')
+  const limit      = Math.min(Number(c.req.query('limit')) || 20, 50)
+  const offset     = Math.max(Number(c.req.query('offset')) || 0, 0)
 
-  let seriesId: string | undefined
-
+  // Resolve series slug → id before the main query
+  let seriesIdFilter: string | undefined
   if (seriesSlug) {
-    const matchedSeries = await db.query.series.findFirst({
-      where: eq(series.slug, seriesSlug),
-    })
-    if (!matchedSeries) return c.json({ articles: [], total: 0 })
-    seriesId = matchedSeries.id
+    const [s] = await db
+      .select({ id: series.id })
+      .from(series)
+      .where(eq(series.slug, seriesSlug))
+      .limit(1)
+    if (!s) return c.json({ articles: [], limit, offset })
+    seriesIdFilter = s.id
   }
 
-  const whereClause = seriesId
-    ? and(eq(articles.status, 'published'), eq(articles.seriesId, seriesId))
-    : eq(articles.status, 'published')
-
-  const results = await db.query.articles.findMany({
-    where: whereClause,
-    orderBy: [desc(articles.publishedAt)],
-    limit,
-    offset,
-    with: {
-      // if you've defined relations; otherwise we fetch author/series separately below
-    },
-  })
-
-  // Attach author display name + series info (simple manual join since relations may not be configured)
-  const enriched = await Promise.all(
-    results.map(async (article) => {
-      const author = await db.query.users.findFirst({
-        where: eq(users.id, article.authorId),
-        columns: { id: true, displayName: true, avatarUrl: true },
-      })
-      const seriesInfo = article.seriesId
-        ? await db.query.series.findFirst({ where: eq(series.id, article.seriesId) })
-        : null
-
-      return { ...article, author, series: seriesInfo }
+  const rows = await db
+    .select({
+      id:                 articles.id,
+      title:              articles.title,
+      slug:               articles.slug,
+      excerpt:            articles.excerpt,
+      coverImageUrl:      articles.coverImageUrl,
+      tags:               articles.tags,
+      readingTimeMinutes: articles.readingTimeMinutes,
+      viewCount:          articles.viewCount,
+      publishedAt:        articles.publishedAt,
+      authorId:           articles.authorId,
+      series: {
+        id:   series.id,
+        name: series.name,
+        slug: series.slug,
+        icon: series.icon,
+      },
     })
-  )
+    .from(articles)
+    .leftJoin(series, eq(articles.seriesId, series.id))
+    .where(
+      and(
+        eq(articles.status, 'published'),
+        seriesIdFilter ? eq(articles.seriesId, seriesIdFilter) : undefined,
+        tag ? sql`${tag} = ANY(${articles.tags})` : undefined,
+      )
+    )
+    .orderBy(desc(articles.publishedAt))
+    .limit(limit)
+    .offset(offset)
 
-  return c.json({ articles: enriched })
+  return c.json({ articles: rows, limit, offset })
 })
 
-// ──────────────────────────────────────────────────────────
-// GET /articles/mine — contributor's own articles, all statuses
-// IMPORTANT: must be defined BEFORE /:slug
-// ──────────────────────────────────────────────────────────
-articlesRouter.get('/mine', requireAuth, requireRole('contributor', 'admin'), async (c) => {
+// ── GET /articles/mine — auth required ────────────────────────────────────
+
+articlesRoute.get('/mine', requireAuth, async (c) => {
   const user = c.get('user')
 
-  const results = await db.query.articles.findMany({
-    where: eq(articles.authorId, user.id),
-    orderBy: [desc(articles.updatedAt)],
-  })
+  const rows = await db
+    .select()
+    .from(articles)
+    .where(eq(articles.authorId, user.id))
+    .orderBy(desc(articles.updatedAt))
 
-  return c.json({ articles: results })
+  return c.json({ articles: rows })
 })
 
-// ──────────────────────────────────────────────────────────
-// GET /articles/:slug — public detail, increments view count
-// ──────────────────────────────────────────────────────────
-articlesRouter.get('/:slug', async (c) => {
+// ── GET /articles/:slug — public, published only ──────────────────────────
+
+articlesRoute.get('/:slug', async (c) => {
   const slug = c.req.param('slug')
 
-  const article = await db.query.articles.findFirst({
-    where: eq(articles.slug, slug),
-  })
+  const [article] = await db
+    .select({
+      id:                 articles.id,
+      title:              articles.title,
+      slug:               articles.slug,
+      excerpt:            articles.excerpt,
+      content:            articles.content,
+      coverImageUrl:      articles.coverImageUrl,
+      tags:               articles.tags,
+      readingTimeMinutes: articles.readingTimeMinutes,
+      viewCount:          articles.viewCount,
+      publishedAt:        articles.publishedAt,
+      authorId:           articles.authorId,
+      series: {
+        id:   series.id,
+        name: series.name,
+        slug: series.slug,
+        icon: series.icon,
+      },
+    })
+    .from(articles)
+    .leftJoin(series, eq(articles.seriesId, series.id))
+    .where(and(eq(articles.slug, slug), eq(articles.status, 'published')))
+    .limit(1)
 
   if (!article) return c.json({ error: 'Article not found' }, 404)
 
-  // Only show published articles publicly. Authors/admins can preview drafts
-  // via a separate authenticated check if needed later.
-  if (article.status !== 'published') {
-    return c.json({ error: 'Article not found' }, 404)
-  }
-
-  // Increment view count (fire and forget — don't block response)
-  db.update(articles)
+  const [{ viewCount }] = await db
+    .update(articles)
     .set({ viewCount: sql`${articles.viewCount} + 1` })
     .where(eq(articles.id, article.id))
-    .catch(() => {})
+    .returning({ viewCount: articles.viewCount })
 
-  const author = await db.query.users.findFirst({
-    where: eq(users.id, article.authorId),
-    columns: { id: true, displayName: true, avatarUrl: true },
-  })
-
-  const seriesInfo = article.seriesId
-    ? await db.query.series.findFirst({ where: eq(series.id, article.seriesId) })
-    : null
-
-  return c.json({ article: { ...article, author, series: seriesInfo } })
+  return c.json({ article: { ...article, viewCount } })
 })
 
-// ──────────────────────────────────────────────────────────
-// POST /articles — create (contributor/admin)
-// ──────────────────────────────────────────────────────────
-articlesRouter.post('/', requireAuth, requireRole('contributor', 'admin'), async (c) => {
+// ── POST /articles — contributor or admin ─────────────────────────────────
+
+articlesRoute.post('/', requireAuth, async (c) => {
   const user = c.get('user')
-  const body = await c.req.json().catch(() => ({}))
 
-  if (!body.title || !body.content) {
-    return c.json({ error: 'Title and content are required' }, 400)
+  if (user.role !== 'contributor' && user.role !== 'admin') {
+    return c.json({ error: 'Forbidden' }, 403)
   }
 
-  const baseSlug = slugify(body.title)
-  let slug = baseSlug
-  let suffix = 1
+  const body = await c.req.json<{
+    title:          string
+    content:        string
+    seriesId?:      string
+    excerpt?:       string
+    coverImageUrl?: string
+    tags?:          string[]
+    status?:        'draft' | 'published'
+  }>()
 
-  // Ensure slug uniqueness
-  while (await db.query.articles.findFirst({ where: eq(articles.slug, slug) })) {
-    slug = `${baseSlug}-${suffix}`
-    suffix++
+  if (!body.title?.trim() || !body.content?.trim()) {
+    return c.json({ error: 'title and content are required' }, 400)
   }
 
+  const slug   = await uniqueSlug(slugify(body.title))
   const status = body.status === 'published' ? 'published' : 'draft'
 
-  const [article] = await db
+  const [created] = await db
     .insert(articles)
     .values({
-      authorId: user.id,
-      seriesId: body.seriesId ?? null,
-      title: body.title,
+      authorId:           user.id,
+      seriesId:           body.seriesId ?? null,
+      title:              body.title.trim(),
       slug,
-      excerpt: body.excerpt ?? null,
-      content: body.content,
-      coverImageUrl: body.coverImageUrl ?? null,
-      status,
-      tags: body.tags ?? [],
+      excerpt:            body.excerpt?.trim() ?? null,
+      content:            body.content,
+      coverImageUrl:      body.coverImageUrl ?? null,
+      tags:               body.tags ?? [],
       readingTimeMinutes: estimateReadingTime(body.content),
-      publishedAt: status === 'published' ? new Date() : null,
+      status,
+      publishedAt:        status === 'published' ? new Date() : null,
     })
     .returning()
 
-  return c.json({ article }, 201)
+  return c.json({ article: created }, 201)
 })
 
-// ──────────────────────────────────────────────────────────
-// PUT /articles/:id — edit (author or admin)
-// ──────────────────────────────────────────────────────────
-articlesRouter.put('/:id', requireAuth, async (c) => {
-  const id = c.req.param('id')
+// ── PUT /articles/:id — author or admin ───────────────────────────────────
+
+articlesRoute.put('/:id', requireAuth, async (c) => {
   const user = c.get('user')
-  const body = await c.req.json().catch(() => ({}))
+  const id   = c.req.param('id')
 
-  const existing = await db.query.articles.findFirst({
-    where: eq(articles.id, id),
-  })
-
+  const [existing] = await db.select().from(articles).where(eq(articles.id, id)).limit(1)
   if (!existing) return c.json({ error: 'Article not found' }, 404)
 
   const isOwner = existing.authorId === user.id
   const isAdmin = user.role === 'admin'
+  if (!isOwner && !isAdmin) return c.json({ error: 'Forbidden' }, 403)
 
-  if (!isOwner && !isAdmin) {
-    return c.json({ error: 'Forbidden' }, 403)
+  const body = await c.req.json<Partial<{
+    title:         string
+    content:       string
+    seriesId:      string | null
+    excerpt:       string | null
+    coverImageUrl: string | null
+    tags:          string[]
+    status:        'draft' | 'published' | 'archived'
+  }>>()
+
+  const updates: Record<string, unknown> = { updatedAt: new Date() }
+  if (body.title         !== undefined) updates.title              = body.title.trim()
+  if (body.content       !== undefined) {
+    updates.content            = body.content
+    updates.readingTimeMinutes = estimateReadingTime(body.content)
   }
+  if (body.seriesId      !== undefined) updates.seriesId      = body.seriesId
+  if (body.excerpt       !== undefined) updates.excerpt       = body.excerpt
+  if (body.coverImageUrl !== undefined) updates.coverImageUrl = body.coverImageUrl
+  if (body.tags          !== undefined) updates.tags          = body.tags
 
-  // If slug-changing title, regenerate slug
-  let slug = existing.slug
-  if (body.title && body.title !== existing.title) {
-    const baseSlug = slugify(body.title)
-    slug = baseSlug
-    let suffix = 1
-    while (true) {
-      const conflict = await db.query.articles.findFirst({ where: eq(articles.slug, slug) })
-      if (!conflict || conflict.id === id) break
-      slug = `${baseSlug}-${suffix}`
-      suffix++
+  if (body.status !== undefined && body.status !== existing.status) {
+    if (existing.status === 'suspended' && !isAdmin) {
+      return c.json({ error: 'Suspended articles can only be changed by an admin' }, 403)
+    }
+    updates.status = body.status
+    if (body.status === 'published' && !existing.publishedAt) {
+      updates.publishedAt = new Date()
     }
   }
 
-  const newStatus = body.status ?? existing.status
-  const wasPublished = existing.status === 'published'
-  const isNowPublished = newStatus === 'published'
-
-  const [updated] = await db
-    .update(articles)
-    .set({
-      title: body.title ?? existing.title,
-      slug,
-      seriesId: body.seriesId !== undefined ? body.seriesId : existing.seriesId,
-      excerpt: body.excerpt !== undefined ? body.excerpt : existing.excerpt,
-      content: body.content ?? existing.content,
-      coverImageUrl: body.coverImageUrl !== undefined ? body.coverImageUrl : existing.coverImageUrl,
-      status: newStatus,
-      tags: body.tags ?? existing.tags,
-      readingTimeMinutes: body.content ? estimateReadingTime(body.content) : existing.readingTimeMinutes,
-      publishedAt: !wasPublished && isNowPublished ? new Date() : existing.publishedAt,
-      updatedAt: new Date(),
-    })
-    .where(eq(articles.id, id))
-    .returning()
-
+  const [updated] = await db.update(articles).set(updates).where(eq(articles.id, id)).returning()
   return c.json({ article: updated })
 })
 
-// ──────────────────────────────────────────────────────────
-// DELETE /articles/:id — author or admin
-// ──────────────────────────────────────────────────────────
-articlesRouter.delete('/:id', requireAuth, async (c) => {
-  const id = c.req.param('id')
+// ── DELETE /articles/:id — author or admin ────────────────────────────────
+
+articlesRoute.delete('/:id', requireAuth, async (c) => {
   const user = c.get('user')
+  const id   = c.req.param('id')
 
-  const existing = await db.query.articles.findFirst({
-    where: eq(articles.id, id),
-  })
-
+  const [existing] = await db.select().from(articles).where(eq(articles.id, id)).limit(1)
   if (!existing) return c.json({ error: 'Article not found' }, 404)
 
   const isOwner = existing.authorId === user.id
   const isAdmin = user.role === 'admin'
-
-  if (!isOwner && !isAdmin) {
-    return c.json({ error: 'Forbidden' }, 403)
-  }
+  if (!isOwner && !isAdmin) return c.json({ error: 'Forbidden' }, 403)
 
   await db.delete(articles).where(eq(articles.id, id))
-
   return c.json({ success: true })
 })
-
-export default articlesRouter

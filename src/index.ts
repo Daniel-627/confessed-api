@@ -5,6 +5,7 @@ import me from './routes/me.js'
 import contributors from './routes/contributors.js'
 import admin from './routes/admin.js'
 import { seriesRoute } from './routes/series.js'
+import { articlesRoute } from './routes/articles.js'
 import type { AppVariables } from './types/index.js'
 
 const app = new Hono<{ Variables: AppVariables }>()
@@ -30,5 +31,6 @@ app.route('/me', me)
 app.route('/contributors', contributors)
 app.route('/admin', admin)
 app.route('/series', seriesRoute)
+app.route('/articles', articlesRoute)
 
 export default app
