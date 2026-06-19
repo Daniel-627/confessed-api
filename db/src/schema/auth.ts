@@ -57,6 +57,10 @@ export const auditEventEnum = pgEnum('audit_event', [
   'profile_updated',
   'session_revoked',
   'all_sessions_revoked',
+  'article_published',
+  'article_suspended',
+  'article_reinstated',
+  'article_deleted',
 ])
 
 export const emailTypeEnum = pgEnum('email_type', [

@@ -6,6 +6,7 @@ import {
   contributorApplications,
   contributorProfiles,
   auditLog,
+  articles,
 } from '../../db/src/index.js'
 import { eq } from 'drizzle-orm'
 import type { AppVariables } from '../types/index.js'
@@ -305,6 +306,85 @@ admin.put('/users/:id/role', async (c) => {
     success: true,
     user: { id, oldRole, newRole },
   })
+})
+
+// GET /admin/articles — list all articles regardless of status (admin oversight)
+admin.get('/articles', async (c) => {
+  const allArticles = await db.query.articles.findMany({
+    orderBy: (a, { desc }) => [desc(a.createdAt)],
+  })
+  return c.json({ articles: allArticles })
+})
+
+// PUT /admin/articles/:id/suspend
+admin.put('/articles/:id/suspend', async (c) => {
+  const id = c.req.param('id')
+  const actor = c.get('user')
+  const body = await c.req.json().catch(() => ({}))
+
+  const article = await db.query.articles.findFirst({
+    where: eq(articles.id, id),
+  })
+
+  if (!article) return c.json({ error: 'Article not found' }, 404)
+  if (article.status === 'suspended') {
+    return c.json({ error: 'Article is already suspended' }, 400)
+  }
+
+  await db
+    .update(articles)
+    .set({
+      status: 'suspended',
+      suspendedBy: actor.id,
+      suspendedAt: new Date(),
+      suspensionReason: body.reason ?? null,
+      updatedAt: new Date(),
+    })
+    .where(eq(articles.id, id))
+
+  await db.insert(auditLog).values({
+    userId: article.authorId,
+    actorId: actor.id,
+    eventType: 'article_suspended',
+    metadata: { articleId: id, reason: body.reason ?? null },
+  })
+
+  return c.json({ success: true })
+})
+
+// PUT /admin/articles/:id/reinstate — undo a suspension
+admin.put('/articles/:id/reinstate', async (c) => {
+  const id = c.req.param('id')
+  const actor = c.get('user')
+
+  const article = await db.query.articles.findFirst({
+    where: eq(articles.id, id),
+  })
+
+  if (!article) return c.json({ error: 'Article not found' }, 404)
+  if (article.status !== 'suspended') {
+    return c.json({ error: 'Article is not suspended' }, 400)
+  }
+
+  await db
+    .update(articles)
+    .set({
+      status: 'published',
+      suspendedBy: null,
+      suspendedAt: null,
+      suspensionReason: null,
+      updatedAt: new Date(),
+    })
+    .where(eq(articles.id, id))
+
+  await db.insert(auditLog).values({
+    userId: article.authorId,
+    actorId: actor.id,
+    eventType: 'article_reinstated',
+    metadata: { articleId: id },
+  })
+
+  return c.json({ success: true })
 })
 
 export default admin
