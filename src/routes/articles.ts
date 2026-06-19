@@ -47,7 +47,6 @@ articlesRoute.get('/', async (c) => {
   const limit      = Math.min(Number(c.req.query('limit')) || 20, 50)
   const offset     = Math.max(Number(c.req.query('offset')) || 0, 0)
 
-  // Resolve series slug → id before the main query
   let seriesIdFilter: string | undefined
   if (seriesSlug) {
     const [s] = await db
@@ -83,8 +82,12 @@ articlesRoute.get('/', async (c) => {
     .where(
       and(
         eq(articles.status, 'published'),
-        seriesIdFilter ? eq(articles.seriesId, seriesIdFilter) : undefined,
-        tag ? sql`${tag} = ANY(${articles.tags})` : undefined,
+        seriesIdFilter !== undefined
+          ? sql`${articles.seriesId} = ${seriesIdFilter}`
+          : undefined,
+        tag !== undefined
+          ? sql`${tag} = ANY(${articles.tags})`
+          : undefined,
       )
     )
     .orderBy(desc(articles.publishedAt))
@@ -111,7 +114,7 @@ articlesRoute.get('/mine', requireAuth, async (c) => {
 // ── GET /articles/:slug — public, published only ──────────────────────────
 
 articlesRoute.get('/:slug', async (c) => {
-  const slug = c.req.param('slug')
+  const slug = c.req.param('slug') as string
 
   const [article] = await db
     .select({
@@ -135,7 +138,10 @@ articlesRoute.get('/:slug', async (c) => {
     })
     .from(articles)
     .leftJoin(series, eq(articles.seriesId, series.id))
-    .where(and(eq(articles.slug, slug), eq(articles.status, 'published')))
+    .where(and(
+      sql`${articles.slug} = ${slug}`,
+      eq(articles.status, 'published'),
+    ))
     .limit(1)
 
   if (!article) return c.json({ error: 'Article not found' }, 404)
@@ -143,7 +149,7 @@ articlesRoute.get('/:slug', async (c) => {
   const [{ viewCount }] = await db
     .update(articles)
     .set({ viewCount: sql`${articles.viewCount} + 1` })
-    .where(eq(articles.id, article.id))
+    .where(sql`${articles.id} = ${article.id}`)
     .returning({ viewCount: articles.viewCount })
 
   return c.json({ article: { ...article, viewCount } })
@@ -199,9 +205,14 @@ articlesRoute.post('/', requireAuth, async (c) => {
 
 articlesRoute.put('/:id', requireAuth, async (c) => {
   const user = c.get('user')
-  const id   = c.req.param('id')
+  const id   = c.req.param('id') as string
 
-  const [existing] = await db.select().from(articles).where(eq(articles.id, id)).limit(1)
+  const [existing] = await db
+    .select()
+    .from(articles)
+    .where(sql`${articles.id} = ${id}`)
+    .limit(1)
+
   if (!existing) return c.json({ error: 'Article not found' }, 404)
 
   const isOwner = existing.authorId === user.id
@@ -239,7 +250,12 @@ articlesRoute.put('/:id', requireAuth, async (c) => {
     }
   }
 
-  const [updated] = await db.update(articles).set(updates).where(eq(articles.id, id)).returning()
+  const [updated] = await db
+    .update(articles)
+    .set(updates)
+    .where(sql`${articles.id} = ${id}`)
+    .returning()
+
   return c.json({ article: updated })
 })
 
@@ -247,15 +263,20 @@ articlesRoute.put('/:id', requireAuth, async (c) => {
 
 articlesRoute.delete('/:id', requireAuth, async (c) => {
   const user = c.get('user')
-  const id   = c.req.param('id')
+  const id   = c.req.param('id') as string
 
-  const [existing] = await db.select().from(articles).where(eq(articles.id, id)).limit(1)
+  const [existing] = await db
+    .select()
+    .from(articles)
+    .where(sql`${articles.id} = ${id}`)
+    .limit(1)
+
   if (!existing) return c.json({ error: 'Article not found' }, 404)
 
   const isOwner = existing.authorId === user.id
   const isAdmin = user.role === 'admin'
   if (!isOwner && !isAdmin) return c.json({ error: 'Forbidden' }, 403)
 
-  await db.delete(articles).where(eq(articles.id, id))
+  await db.delete(articles).where(sql`${articles.id} = ${id}`)
   return c.json({ success: true })
 })
