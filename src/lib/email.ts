@@ -60,7 +60,7 @@ function layout(content: string): string {
 
 // Shared element shortcuts
 const h1   = (text: string) => `<h1 style="font-family:Georgia,serif;font-size:28px;font-weight:400;color:#f0ece0;margin:0 0 18px;line-height:1.3;">${text}</h1>`
-const p    = (text: string) => `<p style="font-family:Georgia,serif;font-size:16px;line-height:1.8;color:rgba(240,236,224,0.65);margin:0 0 16px;">${p}</p>`.replace('>${p}<', `>${text}<`)
+const p = (text: string) => `<p style="font-family:Georgia,serif;font-size:16px;line-height:1.8;color:rgba(240,236,224,0.65);margin:0 0 16px;">${text}</p>`
 const em   = (text: string) => `<em style="font-style:italic;color:#C9A94A;">${text}</em>`
 const btn  = (label: string, href: string) => `<a href="${href}" style="display:inline-block;background:#C9A94A;color:#080f1a;font-family:Arial,sans-serif;font-size:13px;font-weight:700;letter-spacing:1px;text-decoration:none;padding:13px 28px;border-radius:6px;margin-top:8px;">${label}</a>`
 const hr   = () => `<hr style="border:none;border-top:1px solid rgba(255,255,255,0.06);margin:28px 0;" />`
