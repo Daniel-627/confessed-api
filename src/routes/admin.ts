@@ -10,7 +10,7 @@ import {
 } from '../../db/src/index.js'
 import type { AppVariables } from '../types/index.js'
 import { sendEmail } from '../lib/email.js'
-import { eq, sql } from 'drizzle-orm'
+import { eq, inArray, sql } from 'drizzle-orm'
 
 const admin = new Hono<{ Variables: AppVariables }>()
 
@@ -420,7 +420,7 @@ admin.post('/send-email', async (c) => {
   const targetUsers = await db
     .select({ id: users.id, email: users.email, displayName: users.displayName })
     .from(users)
-    .where(sql`${users.id} = ANY(${body.userIds})`)
+    .where(inArray(users.id, body.userIds))
 
   if (!targetUsers.length) {
     return c.json({ error: 'No matching users found' }, 404)
