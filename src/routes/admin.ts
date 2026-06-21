@@ -387,4 +387,92 @@ admin.put('/articles/:id/reinstate', async (c) => {
   return c.json({ success: true })
 })
 
+admin.post('/send-email', async (c) => {
+  const actor = c.get('user')
+  const body  = await c.req.json<{
+    userIds:  string[]           // one or more user IDs from the users table
+    type:     string             // EmailType
+    subject?: string             // required for 'custom'
+    body?:    string             // required for 'custom'
+  }>().catch(() => null)
+
+  if (!body || !body.userIds?.length || !body.type) {
+    return c.json({ error: 'userIds and type are required' }, 400)
+  }
+
+  const ALLOWED_TYPES = [
+    'welcome',
+    'contributor_approved',
+    'contributor_rejected',
+    'contributor_application_received',
+    'custom',
+  ]
+
+  if (!ALLOWED_TYPES.includes(body.type)) {
+    return c.json({ error: `Invalid type. Allowed: ${ALLOWED_TYPES.join(', ')}` }, 400)
+  }
+
+  if (body.type === 'custom' && (!body.subject?.trim() || !body.body?.trim())) {
+    return c.json({ error: 'subject and body are required for custom emails' }, 400)
+  }
+
+  // Fetch all target users
+  const targetUsers = await db
+    .select({ id: users.id, email: users.email, displayName: users.displayName })
+    .from(users)
+    .where(sql`${users.id} = ANY(${body.userIds})`)
+
+  if (!targetUsers.length) {
+    return c.json({ error: 'No matching users found' }, 404)
+  }
+
+  const results: { email: string; ok: boolean; error?: string }[] = []
+
+  for (const u of targetUsers) {
+    try {
+      const name = u.displayName ?? u.email
+
+      if (body.type === 'custom') {
+        await sendEmail({
+          to:   u.email,
+          type: 'custom',
+          data: {
+            subject:       body.subject!,
+            body:          body.body!,
+            recipientName: name,
+          },
+        })
+      } else if (body.type === 'welcome') {
+        await sendEmail({ to: u.email, type: 'welcome', data: { fullName: name } })
+      } else if (body.type === 'contributor_application_received') {
+        await sendEmail({ to: u.email, type: 'contributor_application_received', data: { fullName: name } })
+      } else if (body.type === 'contributor_approved') {
+        await sendEmail({ to: u.email, type: 'contributor_approved', data: { fullName: name, reason: null } })
+      } else if (body.type === 'contributor_rejected') {
+        await sendEmail({ to: u.email, type: 'contributor_rejected', data: { fullName: name, reason: 'See previous correspondence.' } })
+      }
+
+      results.push({ email: u.email, ok: true })
+
+      // Write audit log
+      await db.insert(auditLog).values({
+        userId:    u.id,
+        actorId:   actor.id,
+        eventType: 'email_sent',
+        metadata:  { type: body.type, subject: body.subject ?? body.type },
+      })
+    } catch (e: any) {
+      results.push({ email: u.email, ok: false, error: e.message })
+    }
+  }
+
+  const failed = results.filter(r => !r.ok)
+  return c.json({
+    sent:   results.filter(r => r.ok).length,
+    failed: failed.length,
+    results,
+  })
+})
+
+
 export default admin
