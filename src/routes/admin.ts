@@ -8,9 +8,9 @@ import {
   auditLog,
   articles,
 } from '../../db/src/index.js'
-import { eq } from 'drizzle-orm'
 import type { AppVariables } from '../types/index.js'
 import { sendEmail } from '../lib/email.js'
+import { eq, sql } from 'drizzle-orm'
 
 const admin = new Hono<{ Variables: AppVariables }>()
 
@@ -454,13 +454,7 @@ admin.post('/send-email', async (c) => {
 
       results.push({ email: u.email, ok: true })
 
-      // Write audit log
-      await db.insert(auditLog).values({
-        userId:    u.id,
-        actorId:   actor.id,
-        eventType: 'email_sent',
-        metadata:  { type: body.type, subject: body.subject ?? body.type },
-      })
+      
     } catch (e: any) {
       results.push({ email: u.email, ok: false, error: e.message })
     }
