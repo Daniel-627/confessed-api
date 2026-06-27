@@ -8,6 +8,7 @@ import admin from './routes/admin.js'
 import { seriesRoute } from './routes/series.js'
 import { articlesRoute } from './routes/articles.js'
 import { contactRoute } from './routes/contact.js'
+import { newsletterRoute } from './routes/newsletter.js'
 import type { AppVariables } from './types/index.js'
 
 const app = new Hono<{ Variables: AppVariables }>()
@@ -33,5 +34,5 @@ app.route('/admin', admin)
 app.route('/series', seriesRoute)
 app.route('/articles', articlesRoute)
 app.route('/contact', contactRoute)
-
+app.route('/newsletter', newsletterRoute)
 export default app

@@ -9,6 +9,7 @@ export type EmailType =
   | 'welcome'
   | 'contact_received'
   | 'contact_confirmation'
+  | 'newsletter_welcome'
   | 'custom'
 
 export type EmailPayload =
@@ -18,12 +19,11 @@ export type EmailPayload =
   | { to: string; type: 'welcome';                          data: { fullName?: string } }
   | { to: string; type: 'contact_received';                 data: { name: string; email: string; reason: string; message: string } }
   | { to: string; type: 'contact_confirmation';             data: { name: string } }
+  | { to: string; type: 'newsletter_welcome';               data: { name?: string } }
   | { to: string; type: 'custom';                           data: { subject: string; body: string; recipientName?: string } }
 
-// ── Shared layout ──────────────────────────────────────────────────────────
-
-const APP_URL       = process.env.APP_URL        ?? 'https://confessed.faith'
-const CONTRIBUTE    = process.env.CONTRIBUTE_URL ?? 'https://contribute.confessed.faith'
+const APP_URL    = process.env.APP_URL        ?? 'https://confessed.faith'
+const CONTRIBUTE = process.env.CONTRIBUTE_URL ?? 'https://contribute.confessed.faith'
 
 function layout(content: string): string {
   return `<!DOCTYPE html>
@@ -31,19 +31,11 @@ function layout(content: string): string {
 <head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width,initial-scale=1.0" /></head>
 <body style="margin:0;padding:0;background:#080f1a;font-family:Georgia,serif;">
   <div style="max-width:600px;margin:0 auto;background:#080f1a;">
-
-    <!-- Header -->
     <div style="padding:36px 48px 28px;border-bottom:1px solid rgba(201,169,74,0.15);">
       <span style="color:#C9A94A;font-size:20px;display:block;margin-bottom:10px;">✝</span>
       <span style="font-family:Arial,sans-serif;font-size:12px;font-weight:700;letter-spacing:4px;color:#f0ece0;">CONFESSED</span>
     </div>
-
-    <!-- Body -->
-    <div style="padding:40px 48px;">
-      ${content}
-    </div>
-
-    <!-- Footer -->
+    <div style="padding:40px 48px;">${content}</div>
     <div style="padding:0 48px 40px;">
       <hr style="border:none;border-top:1px solid rgba(255,255,255,0.06);margin:0 0 24px;" />
       <p style="font-family:Arial,sans-serif;font-size:11px;color:rgba(240,236,224,0.2);line-height:1.7;margin:0;">
@@ -52,21 +44,17 @@ function layout(content: string): string {
         Reformed · Confessional · Gospel-Centred.
       </p>
     </div>
-
   </div>
 </body>
 </html>`
 }
 
-// Shared element shortcuts
-const h1   = (text: string) => `<h1 style="font-family:Georgia,serif;font-size:28px;font-weight:400;color:#f0ece0;margin:0 0 18px;line-height:1.3;">${text}</h1>`
-const p = (text: string) => `<p style="font-family:Georgia,serif;font-size:16px;line-height:1.8;color:rgba(240,236,224,0.65);margin:0 0 16px;">${text}</p>`
-const em   = (text: string) => `<em style="font-style:italic;color:#C9A94A;">${text}</em>`
-const btn  = (label: string, href: string) => `<a href="${href}" style="display:inline-block;background:#C9A94A;color:#080f1a;font-family:Arial,sans-serif;font-size:13px;font-weight:700;letter-spacing:1px;text-decoration:none;padding:13px 28px;border-radius:6px;margin-top:8px;">${label}</a>`
-const hr   = () => `<hr style="border:none;border-top:1px solid rgba(255,255,255,0.06);margin:28px 0;" />`
+const h1    = (text: string) => `<h1 style="font-family:Georgia,serif;font-size:28px;font-weight:400;color:#f0ece0;margin:0 0 18px;line-height:1.3;">${text}</h1>`
+const p     = (text: string) => `<p style="font-family:Georgia,serif;font-size:16px;line-height:1.8;color:rgba(240,236,224,0.65);margin:0 0 16px;">${text}</p>`
+const em    = (text: string) => `<em style="font-style:italic;color:#C9A94A;">${text}</em>`
+const btn   = (label: string, href: string) => `<a href="${href}" style="display:inline-block;background:#C9A94A;color:#080f1a;font-family:Arial,sans-serif;font-size:13px;font-weight:700;letter-spacing:1px;text-decoration:none;padding:13px 28px;border-radius:6px;margin-top:8px;">${label}</a>`
+const hr    = () => `<hr style="border:none;border-top:1px solid rgba(255,255,255,0.06);margin:28px 0;" />`
 const quote = (text: string) => `<div style="margin:24px 0;padding:0 0 0 20px;border-left:3px solid #C9A94A;"><p style="font-family:Georgia,serif;font-size:16px;font-style:italic;color:rgba(240,236,224,0.4);margin:0;line-height:1.75;">${text}</p></div>`
-
-// ── Templates ──────────────────────────────────────────────────────────────
 
 function getSubjectAndHtml(payload: EmailPayload): { subject: string; html: string } {
   switch (payload.type) {
@@ -76,19 +64,9 @@ function getSubjectAndHtml(payload: EmailPayload): { subject: string; html: stri
         subject: "You've been approved as a Confessed contributor",
         html: layout(`
           ${h1(`Welcome to Confessed, ${em(payload.data.fullName)}.`)}
-          <p style="font-family:Georgia,serif;font-size:16px;line-height:1.8;color:rgba(240,236,224,0.65);margin:0 0 16px;">
-            We've reviewed your application and we're glad to have you.
-          </p>
-          ${payload.data.reason
-            ? quote(payload.data.reason)
-            : `<p style="font-family:Georgia,serif;font-size:16px;line-height:1.8;color:rgba(240,236,224,0.65);margin:0 0 16px;">
-                Your theological statement and writing samples reflect the kind of careful,
-                gospel-centred thinking that Confessed is built on.
-               </p>`
-          }
-          <p style="font-family:Georgia,serif;font-size:16px;line-height:1.8;color:rgba(240,236,224,0.65);margin:0 0 24px;">
-            You can now access the contributor portal with your existing login.
-          </p>
+          ${p("We've reviewed your application and we're glad to have you.")}
+          ${payload.data.reason ? quote(payload.data.reason) : p('Your theological statement and writing samples reflect the kind of careful, gospel-centred thinking that Confessed is built on.')}
+          ${p('You can now access the contributor portal with your existing login.')}
           ${btn('Open contributor portal', CONTRIBUTE)}
           ${hr()}
           ${quote('"Hold fast the pattern of sound words." — 2 Timothy 1:13')}
@@ -100,14 +78,9 @@ function getSubjectAndHtml(payload: EmailPayload): { subject: string; html: stri
         subject: 'Your Confessed contributor application',
         html: layout(`
           ${h1(`Thank you for applying, ${em(payload.data.fullName)}.`)}
-          <p style="font-family:Georgia,serif;font-size:16px;line-height:1.8;color:rgba(240,236,224,0.65);margin:0 0 16px;">
-            After careful review, we are not able to approve your application at this time.
-          </p>
+          ${p('After careful review, we are not able to approve your application at this time.')}
           ${quote(payload.data.reason)}
-          <p style="font-family:Georgia,serif;font-size:16px;line-height:1.8;color:rgba(240,236,224,0.65);margin:0 0 24px;">
-            You are welcome to reapply after 30 days. In the meantime, Confessed
-            exists for you as a reader — the content is there for your growth.
-          </p>
+          ${p('You are welcome to reapply after 30 days. In the meantime, Confessed exists for you as a reader — the content is there for your growth.')}
           ${btn('Continue reading', `${APP_URL}/articles`)}
         `),
       }
@@ -117,13 +90,8 @@ function getSubjectAndHtml(payload: EmailPayload): { subject: string; html: stri
         subject: "We've received your contributor application",
         html: layout(`
           ${h1(`Application received, ${em(payload.data.fullName)}.`)}
-          <p style="font-family:Georgia,serif;font-size:16px;line-height:1.8;color:rgba(240,236,224,0.65);margin:0 0 16px;">
-            Our team will review your application carefully.
-            This usually takes 3–5 business days.
-          </p>
-          <p style="font-family:Georgia,serif;font-size:16px;line-height:1.8;color:rgba(240,236,224,0.65);margin:0 0 24px;">
-            We will be in touch either way.
-          </p>
+          ${p('Our team will review your application carefully. This usually takes 3–5 business days.')}
+          ${p('We will be in touch either way.')}
           ${hr()}
           ${quote('"The heart of man plans his way, but the Lord establishes his steps." — Proverbs 16:9')}
         `),
@@ -134,17 +102,27 @@ function getSubjectAndHtml(payload: EmailPayload): { subject: string; html: stri
         subject: 'Welcome to Confessed',
         html: layout(`
           ${h1(`Welcome to ${em('Confessed.')}`)}
-          <p style="font-family:Georgia,serif;font-size:16px;line-height:1.8;color:rgba(240,236,224,0.65);margin:0 0 16px;">
-            Confessed is a Reformed Baptist theology, apologetics, and discipleship platform
-            built on one conviction: the gospel of Jesus Christ is the power of God for
-            salvation, and we are not ashamed of it.
-          </p>
-          <p style="font-family:Georgia,serif;font-size:16px;line-height:1.8;color:rgba(240,236,224,0.65);margin:0 0 24px;">
-            Start reading. Start learning. Start contending for the faith.
-          </p>
+          ${p('Confessed is a Reformed Baptist theology, apologetics, and discipleship platform built on one conviction: the gospel of Jesus Christ is the power of God for salvation, and we are not ashamed of it.')}
+          ${p('Start reading. Start learning. Start contending for the faith.')}
           ${btn('Go to Confessed', APP_URL)}
           ${hr()}
           ${quote('"If you confess with your mouth that Jesus is Lord and believe in your heart that God raised him from the dead, you will be saved." — Romans 10:9')}
+        `),
+      }
+
+    case 'newsletter_welcome':
+      return {
+        subject: 'You are subscribed to Confessed',
+        html: layout(`
+          ${h1(payload.data.name ? `Welcome, ${em(payload.data.name)}.` : `Welcome to the ${em('Confessed')} newsletter.`)}
+          ${p('You are now subscribed to gospel-centred articles, new series, and theological resources from Confessed.')}
+          ${p('Every email we send is worth reading. No noise, no filler — just Reformed Baptist theology for the church.')}
+          ${btn('Read the latest articles', `${APP_URL}/articles`)}
+          ${hr()}
+          ${quote('"Your word is a lamp to my feet and a light to my path." — Psalm 119:105')}
+          <p style="font-family:Arial,sans-serif;font-size:11px;color:rgba(240,236,224,0.2);margin:16px 0 0;">
+            To unsubscribe, reply to this email with the word "unsubscribe".
+          </p>
         `),
       }
 
@@ -171,10 +149,7 @@ function getSubjectAndHtml(payload: EmailPayload): { subject: string; html: stri
         subject: 'We received your message — Confessed',
         html: layout(`
           ${h1(`We received your message, ${em(payload.data.name)}.`)}
-          <p style="font-family:Georgia,serif;font-size:16px;line-height:1.8;color:rgba(240,236,224,0.65);margin:0 0 16px;">
-            Thank you for reaching out to Confessed. We read every message and will
-            respond as soon as we are able.
-          </p>
+          ${p('Thank you for reaching out to Confessed. We read every message and will respond as soon as we are able.')}
           ${btn('Read the articles', `${APP_URL}/articles`)}
           ${hr()}
           ${quote('"Iron sharpens iron, and one man sharpens another." — Proverbs 27:17')}
@@ -194,8 +169,6 @@ function getSubjectAndHtml(payload: EmailPayload): { subject: string; html: stri
   }
 }
 
-// ── Sender ─────────────────────────────────────────────────────────────────
-
 export async function sendEmail(payload: EmailPayload): Promise<void> {
   const { subject, html } = getSubjectAndHtml(payload)
 
@@ -210,7 +183,7 @@ export async function sendEmail(payload: EmailPayload): Promise<void> {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      from:     `${process.env.RESEND_FROM_NAME ?? 'Confessed'} <${process.env.RESEND_FROM_EMAIL ?? 'hello@confessed.faith'}>`,
+      from: `${process.env.RESEND_FROM_NAME ?? 'Confessed'} <${process.env.RESEND_FROM_EMAIL ?? 'hello@confessed.faith'}>`,
       to,
       subject,
       html,

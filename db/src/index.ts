@@ -4,6 +4,7 @@ import { drizzle } from 'drizzle-orm/neon-http'
 import * as authSchema from './schema/auth.js'
 import * as seriesSchema from './schema/series.js'
 import * as articlesSchema from './schema/articles.js'
+import { newsletterSubscribers } from './schema/newsletter.js'
 
 config({ path: '../.env' })
 
@@ -15,3 +16,4 @@ export const db = drizzle(sql, { schema })
 export * from './schema/auth.js'
 export * from './schema/series.js'
 export * from './schema/articles.js'
+export * from './schema/newsletter.js'
