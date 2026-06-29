@@ -11,6 +11,43 @@ import { requireAuth, requireRole } from '../middleware/auth.js'
 import { sendEmail } from '../lib/email.js'
 import type { AppVariables } from '../types/index.js'
 
+const RESEND_API_KEY   = process.env.RESEND_API_KEY!
+const RESEND_AUDIENCE_ID = process.env.RESEND_AUDIENCE_ID!
+
+// ── Resend audience helpers ───────────────────────────────────────────────
+
+async function resendAddContact(email: string, name?: string) {
+  if (!RESEND_AUDIENCE_ID) return
+  const [firstName, ...rest] = (name ?? '').trim().split(' ')
+  await fetch(`https://api.resend.com/audiences/${RESEND_AUDIENCE_ID}/contacts`, {
+    method:  'POST',
+    headers: {
+      Authorization:  `Bearer ${RESEND_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      email,
+      first_name:   firstName || undefined,
+      last_name:    rest.join(' ') || undefined,
+      unsubscribed: false,
+    }),
+  })
+}
+
+async function resendUnsubscribeContact(email: string) {
+  if (!RESEND_AUDIENCE_ID) return
+  await fetch(`https://api.resend.com/audiences/${RESEND_AUDIENCE_ID}/contacts`, {
+    method:  'POST',
+    headers: {
+      Authorization:  `Bearer ${RESEND_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ email, unsubscribed: true }),
+  })
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+
 export const newsletterRoute = new Hono<{ Variables: AppVariables }>()
 
 // ── POST /newsletter — public subscribe ───────────────────────────────────
@@ -47,11 +84,14 @@ newsletterRoute.post('/', async (c) => {
       .set({ isActive: true, unsubscribedAt: null })
       .where(eq(newsletterSubscribers.email, email))
 
-    await sendEmail({
-      to:   email,
-      type: 'newsletter_welcome',
-      data: { name: body.name?.trim() },
-    })
+    await Promise.all([
+      resendAddContact(email, body.name?.trim()),
+      sendEmail({
+        to:   email,
+        type: 'newsletter_welcome',
+        data: { name: body.name?.trim() },
+      }),
+    ])
 
     return c.json({ success: true, resubscribed: true })
   }
@@ -63,11 +103,14 @@ newsletterRoute.post('/', async (c) => {
     source: body.source ?? 'website',
   })
 
-  await sendEmail({
-    to:   email,
-    type: 'newsletter_welcome',
-    data: { name: body.name?.trim() },
-  })
+  await Promise.all([
+    resendAddContact(email, body.name?.trim()),
+    sendEmail({
+      to:   email,
+      type: 'newsletter_welcome',
+      data: { name: body.name?.trim() },
+    }),
+  ])
 
   return c.json({ success: true })
 })
@@ -80,10 +123,13 @@ newsletterRoute.post('/unsubscribe', async (c) => {
 
   const email = body.email.trim().toLowerCase()
 
-  await db
-    .update(newsletterSubscribers)
-    .set({ isActive: false, unsubscribedAt: new Date() })
-    .where(eq(newsletterSubscribers.email, email))
+  await Promise.all([
+    db
+      .update(newsletterSubscribers)
+      .set({ isActive: false, unsubscribedAt: new Date() })
+      .where(eq(newsletterSubscribers.email, email)),
+    resendUnsubscribeContact(email),
+  ])
 
   return c.json({ success: true })
 })
@@ -112,10 +158,20 @@ newsletterRoute.get('/admin', requireAuth, requireRole('admin'), async (c) => {
 newsletterRoute.delete('/admin/:id', requireAuth, requireRole('admin'), async (c) => {
   const id = c.req.param('id') as string
 
-  await db
-    .update(newsletterSubscribers)
-    .set({ isActive: false, unsubscribedAt: new Date() })
+  // Get email first so we can sync to Resend
+  const [row] = await db
+    .select({ email: newsletterSubscribers.email })
+    .from(newsletterSubscribers)
     .where(sql`${newsletterSubscribers.id} = ${id}`)
+    .limit(1)
+
+  await Promise.all([
+    db
+      .update(newsletterSubscribers)
+      .set({ isActive: false, unsubscribedAt: new Date() })
+      .where(sql`${newsletterSubscribers.id} = ${id}`),
+    row ? resendUnsubscribeContact(row.email) : Promise.resolve(),
+  ])
 
   return c.json({ success: true })
 })
