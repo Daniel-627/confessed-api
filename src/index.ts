@@ -3,6 +3,7 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { handleClerkWebhook } from './routes/webhooks/clerk.js'
 import { handlePaystackWebhook } from './routes/webhooks/paystack.js'
+import { handlePayPalWebhook } from './routes/webhooks/paypal.js'
 import me from './routes/me.js'
 import contributors from './routes/contributors.js'
 import admin from './routes/admin.js'
@@ -31,6 +32,7 @@ app.get('/', (c) => c.json({ status: 'ok', service: 'confessed-api' }))
 
 app.post('/webhooks/clerk', handleClerkWebhook)
 app.post('/webhooks/paystack', handlePaystackWebhook)
+app.post('/webhooks/paypal', handlePayPalWebhook)
 app.route('/me', me)
 app.route('/contributors', contributors)
 app.route('/admin', admin)
