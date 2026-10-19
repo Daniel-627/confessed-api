@@ -2,6 +2,7 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { handleClerkWebhook } from './routes/webhooks/clerk.js'
+import { handleFlutterwaveWebhook } from './routes/webhooks/flutterwave.js'
 import me from './routes/me.js'
 import contributors from './routes/contributors.js'
 import admin from './routes/admin.js'
@@ -9,6 +10,7 @@ import { seriesRoute } from './routes/series.js'
 import { articlesRoute } from './routes/articles.js'
 import { contactRoute } from './routes/contact.js'
 import { newsletterRoute } from './routes/newsletter.js'
+import { donationsRoute } from './routes/donations.js'
 import type { AppVariables } from './types/index.js'
 
 const app = new Hono<{ Variables: AppVariables }>()
@@ -28,6 +30,7 @@ app.use('*', cors({
 app.get('/', (c) => c.json({ status: 'ok', service: 'confessed-api' }))
 
 app.post('/webhooks/clerk', handleClerkWebhook)
+app.post('/webhooks/flutterwave', handleFlutterwaveWebhook)
 app.route('/me', me)
 app.route('/contributors', contributors)
 app.route('/admin', admin)
@@ -35,4 +38,5 @@ app.route('/series', seriesRoute)
 app.route('/articles', articlesRoute)
 app.route('/contact', contactRoute)
 app.route('/newsletter', newsletterRoute)
+app.route('/donations', donationsRoute)
 export default app

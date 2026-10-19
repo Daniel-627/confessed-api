@@ -10,6 +10,7 @@ export type EmailType =
   | 'contact_received'
   | 'contact_confirmation'
   | 'newsletter_welcome'
+  | 'donation_receipt'
   | 'custom'
 
 export type EmailPayload =
@@ -20,6 +21,7 @@ export type EmailPayload =
   | { to: string; type: 'contact_received';                 data: { name: string; email: string; reason: string; message: string } }
   | { to: string; type: 'contact_confirmation';             data: { name: string } }
   | { to: string; type: 'newsletter_welcome';               data: { name?: string } }
+  | { to: string; type: 'donation_receipt';               data: { name?: string; amount: string; currency: string; reference: string; paidAt: string } }
   | { to: string; type: 'custom';                           data: { subject: string; body: string; recipientName?: string } }
 
 const APP_URL    = process.env.APP_URL        ?? 'https://confessed.faith'
@@ -155,6 +157,28 @@ function getSubjectAndHtml(payload: EmailPayload): { subject: string; html: stri
           ${quote('"Iron sharpens iron, and one man sharpens another." — Proverbs 27:17')}
         `),
       }
+
+    case 'donation_receipt': {
+      const d = payload.data
+      const money = new Intl.NumberFormat('en-KE', { style: 'currency', currency: d.currency }).format(Number(d.amount))
+      const date = new Date(d.paidAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
+      return {
+        subject: 'Thank you for your gift — Confessed',
+        html: layout(`
+          ${h1(d.name ? `Thank you, ${em(d.name)}.` : `Thank ${em('you.')}`)}
+          ${p('Your gift has been received. Confessed carries no ads and no paywalls, so every article, video and resource stays free because of people like you.')}
+          ${hr()}
+          <p style="font-family:Arial,sans-serif;font-size:13px;line-height:2;color:rgba(240,236,224,0.65);margin:0;">
+            <strong style="color:#f0ece0;">Amount:</strong> ${money}<br />
+            <strong style="color:#f0ece0;">Date:</strong> ${date}<br />
+            <strong style="color:#f0ece0;">Reference:</strong> ${d.reference}
+          </p>
+          ${hr()}
+          ${quote('"Each one must give as he has decided in his heart, not reluctantly or under compulsion, for God loves a cheerful giver." — 2 Corinthians 9:7')}
+          ${btn('Back to Confessed', APP_URL)}
+        `),
+      }
+    }
 
     case 'custom':
       return {
