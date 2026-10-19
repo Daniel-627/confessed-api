@@ -1,71 +1,73 @@
 // confessed-api/src/lib/donations.ts
 //
-// Flutterwave (v3 hosted checkout) helpers. The browser redirect and the
-// webhook are both treated as *hints*: money is only recorded after we ask
-// Flutterwave's API directly and the reference, amount and currency match.
+// Paystack helpers. The browser redirect and the webhook are both treated as
+// *hints*: money is only recorded after we ask Paystack's API directly and the
+// reference, amount and currency match.
 
 import { and, eq, ne } from 'drizzle-orm'
 import { db, donations } from '../../db/src/index.js'
 import { sendEmail } from './email.js'
 
-export const FLW_BASE = 'https://api.flutterwave.com/v3'
+export const PAYSTACK_BASE = 'https://api.paystack.co'
 
 export const LIMITS: Record<string, { min: number; max: number }> = {
   KES: { min: 50, max: 500_000 },
   USD: { min: 1,  max: 5_000 },
 }
 
-export function flwHeaders() {
+export function paystackHeaders() {
   return {
-    Authorization:  `Bearer ${process.env.FLW_SECRET_KEY}`,
+    Authorization:  `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
     'Content-Type': 'application/json',
   }
 }
 
+/** Paystack amounts are in the currency's subunit (KES → cents, USD → cents). */
+export const toSubunit = (amount: number | string) => Math.round(Number(amount) * 100)
+
 export type DonationRow = typeof donations.$inferSelect
 
 /**
- * Verify a donation with Flutterwave and update our record. Idempotent: safe to
+ * Verify a donation with Paystack and update our record. Idempotent: safe to
  * call from the return page, the webhook, or both at once.
  */
-export async function settleDonation(txRef: string): Promise<DonationRow | null> {
-  const [row] = await db.select().from(donations).where(eq(donations.txRef, txRef)).limit(1)
+export async function settleDonation(reference: string): Promise<DonationRow | null> {
+  const [row] = await db.select().from(donations).where(eq(donations.txRef, reference)).limit(1)
   if (!row) return null
   if (row.status === 'successful') return row
 
   let json: any
   try {
     const res = await fetch(
-      `${FLW_BASE}/transactions/verify_by_reference?tx_ref=${encodeURIComponent(txRef)}`,
-      { headers: flwHeaders() },
+      `${PAYSTACK_BASE}/transaction/verify/${encodeURIComponent(reference)}`,
+      { headers: paystackHeaders() },
     )
     json = await res.json()
-    if (!res.ok) return row // no transaction yet (customer hasn't paid) — stay pending
+    if (!res.ok) return row // not found yet — stay pending
   } catch (e) {
     console.error('[donations] verify request failed:', e)
     return row
   }
 
   const t = json?.data
-  if (json?.status !== 'success' || !t || t.tx_ref !== txRef) return row
+  if (!json?.status || !t || t.reference !== reference) return row
 
   const paid =
-    t.status === 'successful' &&
+    t.status === 'success' &&
     t.currency === row.currency &&
-    Number(t.amount) >= Number(row.amount)
+    Number(t.amount) >= toSubunit(row.amount)
 
   if (paid) {
     // Conditional update = only the first caller flips it, so the receipt is sent once.
     const [updated] = await db
       .update(donations)
       .set({
-        status:           'successful',
-        paidAt:           new Date(),
-        flwTransactionId: String(t.id),
-        flwRef:           t.flw_ref ?? null,
-        paymentType:      t.payment_type ?? null,
+        status:                'successful',
+        paidAt:                t.paid_at ? new Date(t.paid_at) : new Date(),
+        providerTransactionId: t.id != null ? String(t.id) : null,
+        channel:               t.channel ?? null,
       })
-      .where(and(eq(donations.txRef, txRef), ne(donations.status, 'successful')))
+      .where(and(eq(donations.txRef, reference), ne(donations.status, 'successful')))
       .returning()
 
     if (updated) {
@@ -87,15 +89,16 @@ export async function settleDonation(txRef: string): Promise<DonationRow | null>
       }
       return updated
     }
-    const [fresh] = await db.select().from(donations).where(eq(donations.txRef, txRef)).limit(1)
+    const [fresh] = await db.select().from(donations).where(eq(donations.txRef, reference)).limit(1)
     return fresh ?? row
   }
 
+  // Paystack uses 'failed' for declined payments; 'abandoned'/'pending'/'ongoing' stay pending.
   if (t.status === 'failed' && row.status === 'pending') {
     const [updated] = await db
       .update(donations)
-      .set({ status: 'failed', flwTransactionId: String(t.id), paymentType: t.payment_type ?? null })
-      .where(and(eq(donations.txRef, txRef), eq(donations.status, 'pending')))
+      .set({ status: 'failed', providerTransactionId: t.id != null ? String(t.id) : null, channel: t.channel ?? null })
+      .where(and(eq(donations.txRef, reference), eq(donations.status, 'pending')))
       .returning()
     return updated ?? row
   }

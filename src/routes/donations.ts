@@ -9,7 +9,7 @@ import { desc, eq, sql } from 'drizzle-orm'
 import { verifyToken } from '@clerk/backend'
 import { db, donations, users } from '../../db/src/index.js'
 import { requireAuth, requireRole } from '../middleware/auth.js'
-import { FLW_BASE, LIMITS, flwHeaders, settleDonation } from '../lib/donations.js'
+import { PAYSTACK_BASE, LIMITS, paystackHeaders, settleDonation, toSubunit } from '../lib/donations.js'
 import type { AppVariables } from '../types/index.js'
 
 const SITE = process.env.APP_URL ?? 'https://confessed.faith'
@@ -32,7 +32,7 @@ async function optionalUserId(authHeader: string | undefined): Promise<string | 
 }
 
 // ── POST /donations/checkout — public ─────────────────────────────────────
-// Creates a pending record, asks Flutterwave for a hosted checkout link.
+// Creates a pending record, asks Paystack for a hosted checkout link.
 
 donationsRoute.post('/checkout', async (c) => {
   const body = await c.req.json<{
@@ -58,7 +58,7 @@ donationsRoute.post('/checkout', async (c) => {
   const message = body.message?.trim().slice(0, 1000) || null
   const purpose = (PURPOSES as readonly string[]).includes(body.purpose ?? '') ? body.purpose! : 'general'
   const userId = await optionalUserId(c.req.header('Authorization'))
-  const txRef = `cf_${crypto.randomUUID()}`
+  const txRef = `cf-${crypto.randomUUID()}` // Paystack allows only alphanumerics, - . =
 
   const [row] = await db.insert(donations).values({
     txRef, userId, donorName: name, donorEmail: email,
@@ -66,33 +66,28 @@ donationsRoute.post('/checkout', async (c) => {
   }).returning()
 
   try {
-    const res = await fetch(`${FLW_BASE}/payments`, {
+    const res = await fetch(`${PAYSTACK_BASE}/transaction/initialize`, {
       method: 'POST',
-      headers: flwHeaders(),
+      headers: paystackHeaders(),
       body: JSON.stringify({
-        tx_ref:       txRef,
-        amount,
+        email,
+        amount:       String(toSubunit(amount)),
         currency,
-        redirect_url: `${SITE}/give/thank-you`,
-        customer:     { email, ...(name ? { name } : {}) },
-        customizations: {
-          title:       'Confessed',
-          description: 'Support the work of Confessed',
-          logo:        `${SITE}/icon.png`,
-        },
-        meta: { donation_id: row.id, purpose },
+        reference:    txRef,
+        callback_url: `${SITE}/give/thank-you`,
+        metadata:     { donation_id: row.id, purpose, donor_name: name },
       }),
     })
     const json: any = await res.json()
-    const link = json?.data?.link
-    if (!res.ok || json?.status !== 'success' || !link) {
-      console.error('[donations] Flutterwave init failed:', json)
+    const link = json?.data?.authorization_url
+    if (!res.ok || !json?.status || !link) {
+      console.error('[donations] Paystack init failed:', json)
       await db.update(donations).set({ status: 'failed' }).where(eq(donations.id, row.id))
       return c.json({ error: 'Could not start the payment. Please try again.' }, 502)
     }
     return c.json({ link, txRef })
   } catch (e) {
-    console.error('[donations] Flutterwave init error:', e)
+    console.error('[donations] Paystack init error:', e)
     await db.update(donations).set({ status: 'failed' }).where(eq(donations.id, row.id))
     return c.json({ error: 'Could not reach the payment provider. Please try again.' }, 502)
   }
@@ -135,7 +130,7 @@ donationsRoute.get('/admin', requireAuth, requireRole('admin'), async (c) => {
 })
 
 // ── GET /donations/verify/:txRef — public, used by the thank-you page ─────
-// Re-checks with Flutterwave, so a forged redirect can't mark anything paid.
+// Re-checks with Paystack, so a forged redirect can't mark anything paid.
 
 donationsRoute.get('/verify/:txRef', async (c) => {
   const txRef = c.req.param('txRef') as string

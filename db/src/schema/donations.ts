@@ -14,8 +14,9 @@ export const donations = pgTable(
   'donations',
   {
     id:                uuid('id').primaryKey().defaultRandom(),
-    // Our own reference, sent to Flutterwave as tx_ref. Unguessable (uuid).
+    // Our own reference, sent to the payment provider. Unguessable (uuid).
     txRef:             text('tx_ref').unique().notNull(),
+    provider:          text('provider').notNull().default('paystack'),
     userId:            uuid('user_id').references(() => users.id, { onDelete: 'set null' }),
     donorName:         text('donor_name'),
     donorEmail:        text('donor_email').notNull(),
@@ -25,9 +26,8 @@ export const donations = pgTable(
     purpose:           text('purpose').notNull().default('general'),
     message:           text('message'),
     status:            donationStatusEnum('status').notNull().default('pending'),
-    flwTransactionId:  text('flw_transaction_id'),
-    flwRef:            text('flw_ref'),
-    paymentType:       text('payment_type'),
+    providerTransactionId: text('provider_transaction_id'),
+    channel:           text('channel'), // card, mobile_money, ...
     createdAt:         timestamp('created_at',  { withTimezone: true }).defaultNow().notNull(),
     paidAt:            timestamp('paid_at',     { withTimezone: true }),
     receiptSentAt:     timestamp('receipt_sent_at', { withTimezone: true }),
