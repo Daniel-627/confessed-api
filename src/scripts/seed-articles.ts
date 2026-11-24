@@ -1,3 +1,4 @@
+import 'dotenv/config'
 // Seeds article drafts for a series from src/scripts/content/<file>.
 // Usage:  npx tsx src/scripts/seed-articles.ts reasoned-grace
 // Optional env: SEED_AUTHOR_EMAIL (defaults to the first admin user)
@@ -48,3 +49,4 @@ async function main() {
 }
 
 main().catch((e) => { console.error(e); process.exit(1) })
+
